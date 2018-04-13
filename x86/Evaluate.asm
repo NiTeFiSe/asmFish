@@ -710,58 +710,115 @@ macro ShelterStorm Us
 	Up		= DELTA_N
 	PiecesUs	equ r14
 	PiecesThem	equ r15
+  ;   constant Bitboard  ShelterMask:
+    ;          SQ_A7 | SQ_B6 | SQ_C7 | SQ_F7 | SQ_G6 | SQ_H7
+
+  ;   const Bitboard StormMask:
+  ;           SQ_A3 | SQ_C3 | SQ_F3 | SQ_H3
+
+
   else
 	Them		= White
 	Up		= DELTA_S
 	PiecesUs	equ r15
 	PiecesThem	equ r14
+;      else ShelterMask:
+  ;          SQ_A2 | SQ_B3 | SQ_C2 | SQ F2 | SQ_G3 | SQ_H2
+
+;      else StormMask:
+            ; SQ_A6 | SQ_C6 | SQ_F6 | SQ_H6
   end if
 
 	MaxSafetyBonus = 258
 
 		push   rsi rdi r11 r12 r13
-
-
 		Assert   e, PiecesUs, qword[rbp+Pos.typeBB+8*Us], 'assertion PiecesUs failed in EvalPassedPawns'
 		Assert   e, PiecesThem, qword[rbp+Pos.typeBB+8*Them], 'assertion PiecesThem failed in EvalPassedPawns'
 
-	; ecx = ksq
-		mov   r13d, ecx
+  ; Value Entry::shelter_storm(const Position& pos, Square ksq)
+
+  ; shelter_storm(pos, ksq)
+            ; This function serves to calculate shelter and storm penalties
+            ; for the file the king is on, as well as the two closest files
+
+    ; StartPos:
+    ;      Initial Position
+
+    ;    8 ║ ♖ ♘ ♗ ♕ ♔ ♗ ♘ ♖
+    ;    7 ║ ♙ ♙ ♙ ♙ ♙ ♙ ♙ ♙
+    ;    6 ║ .  .  .  .  .  .  .  .
+    ;    4 ║ .  .  .  .  .  .  .  .
+    ;    3 ║ .  .  .  .  .  .  .  .
+    ;    2 ║ ♟ ♟ ♟ ♟ ♟ ♟ ♟ ♟
+    ;    1 ║ ♜ ♞ ♝ ♛ ♚ ♝ ♞ ♜
+    ;      ╚═══════════════════════
+    ;       a  b  c  d  e  f  g  h
+
+    ; File center = std::max(File_B, std::min(FILE_G, file_of(ksq)))
+      if Us eq Black
+    		xor   r13d, 7
+    	end if
+    		add   r13d, 1
+    	; r13d = relative_rank(Us, ksq)+1
+       	and   ecx, 7
+      ; ecx = file of ksq
+
+    		lea   r12d, [5*rcx]
+    		lea   r12d, [r12+8*rcx+2]
+    		shr   r12d, 4
+    	; r12d = max(FILE_B, min(FILE_G, ecx))-1 = center
+      ; r12 = center
+      ;end File center
+;____________________________________________________________________;
+  ;Bitboard b = pos.pieces(PAWN)                  --(1)
+              ; & forward_ranks_bb(Us, ksq)       --(2)
+                  ; | rank_bb(ksq)                --(3)
+              ; & adjacent_files_bb(center)       --(4)
+                  ; | file_bb(center))            --(5)
+; ____________________________________________________________________;
+
+    ; step 2 (mov)  &forward_ranks_bb               & -- (2)
+		mov   r13d, ecx ; ecx = ksq
 		shr   r13d, 3
 		mov   r8, qword[InFrontBB+8*(8*Us+r13)]
+
+    ; step 3 (|)  rank_bb(ksq) [old]               | --(3)
 		or   r8, qword[RankBB+8*r13]
+
+
+    ; step 4 (&) adjacent_files_bb(center)
+    and   r8, qword[AdjacentFilesBB+8*r12]     ;   & --(4)
+
+    ;step 5 (|) file_bb(center)
+    or    r8, qword[FileBB+8*r12];            ;   | --(5)
+
+    ;step 1 (&)     end pos.pices(PAWN)           &  --(1)
 		and   r8, qword[rbp+Pos.typeBB+8*Pawn]
-	; r8 = b
+	  ; r8 = b
+
+
+  ;end Bitboard b
+
 		mov   r9, PiecesUs
 		and   r9, r8
 	; r9 = ourPawns
+
 		mov   r10, PiecesThem
 		and   r10, r8
 	; r10 = theirPawns
+
 		mov   eax, MaxSafetyBonus
 	; eax = saftey
-	if Us eq Black
-		xor   r13d, 7
-	end if
-		add   r13d, 1
-	; r13d = relative_rank(Us, ksq)+1
-		and   ecx, 7
-	; ecx = file of ksq
-		lea   r12d, [5*rcx]
-		lea   r12d, [r12+8*rcx+2]
-		shr   r12d, 4
-	; r12d = max(FILE_B, min(FILE_G, ecx))-1
 
 
   macro ShelterStormAcc
-    local AddStormDanger, TryNext
+    local AddStormDanger, TryNext, ShelterMask, StormMask
 
 	if Us eq White
 		xor   edx, edx
 	else
 		mov   edx, 7 shl 3
 	end if
-
 
 	if Us eq White
 		mov   r8, qword[FileBB+8*r12]
@@ -831,8 +888,102 @@ macro ShelterStorm Us
     ShelterStormAcc
     ShelterStormAcc
 
+    if Us eq White
+      mov   r8, qword[FileBB+8*r12]
+      and   r8, r10
+      bsf   rdi, r8
+      cmovz edi, edx
+      shr   edi, 3
+    else
+      mov   r8, qword[FileBB+8*r12]
+      and   r8, r10
+      bsr   rdi, r8
+      cmovz   edi, edx
+      shr   edi, 3
+      xor   edi, 7
+    end if
+    ; edi = rkThem
 
-		pop   r13 r12 r11 rdi rsi
+    if Us eq White
+
+    ShelterMask   = SQ_A2 or SQ_B3 or SQ_C2 or SQ_F2 or SQ_G3 or SQ_H2
+
+        ; ShelterMask: IF (Us == WHITE)
+        ;     SQ_A2 or SQ_B3 or SQ_C2 or SQ F2 or SQ_G3 or SQ_H2
+
+        ;    8 ║ .  .  .  .  .  .  .  .
+        ;    7 ║ .  .  .  .  .  .  .  .
+        ;    6 ║ .  .  .  .  .  .  .  .
+        ;    4 ║ .  .  .  .  .  .  .  .
+        ;    3 ║ . ♟  .  .  .   . ♟  .
+        ;    2 ║♟  . ♟  .  .  ♟  . ♟  <-- ShelterMask (Us = White)
+        ;    1 ║ . ♚  .  .  .  .  ♚  .
+        ;      ╚═══════════════════════
+        ;        a  b  c  d  e  f  g  h
+
+        StormMask   = SQ_A3 or SQ_C3 or SQ_F3 or SQ_H3
+
+        ; StormMask IF (Us == WHITE)
+        ;     SQ_A3 | SQ_C3 | SQ_F3 | SQ_H3
+
+        ;    8 ║ .  .  .  .  .  .  .  .
+        ;    7 ║ .  .  .  .  .  .  .  .
+        ;    6 ║ .  .  .  .  .  .  .  .
+        ;    4 ║ .  .  .  .  .  .  .  .
+        ;    3 ║♟  .  ♟ .  .  ♟  . ♟  <-- StormMask (Us = White)
+        ;    2 ║ .  .  .  .  .  .  .  .
+        ;    1 ║ . ♚  .  .  .  .  ♚  .
+        ;      ╚═══════════════════════
+        ;        a  b  c  d  e  f  g  h
+
+        else
+
+        ShelterMask   =  SQ_A7 or SQ_B6 or SQ_C7 or SQ_F7 or SQ_G6 or SQ_H7
+
+        ;    8 ║ . ♔  .  .  .  .  ♔  .
+        ;    7 ║♙  . ♙  .  .  ♙  . ♙  <-- ShelterMask (Us = Black)
+        ;    6 ║ . ♙  .  .  .   . ♙  .
+        ;    4 ║ .  .  .  .  .  .  .  .
+        ;    3 ║ .  .  .  .  .  .  .  .
+        ;    2 ║ .  .  .  .  .  .  .  .
+        ;    1 ║ .  .  .  .  .  .  .  .
+        ;      ╚═══════════════════════
+        ;        a  b  c  d  e  f  g  h
+
+
+        StormMask   = SQ_A6 or SQ_C6 or SQ_F6 or SQ_H6
+
+        ;    8 ║ . ♔  .  .  .  .  ♔  .
+        ;    7 ║ .  .  .  .  .  .  .  .
+        ;    6 ║♙  .  ♙ .  .  ♙  . ♙  <-- StormMask (Us = Black)
+        ;    4 ║ .  .  .  .  .  .  .  .
+        ;    3 ║ .  .  .  .  .  .  .  .
+        ;    2 ║ .  .  .  .  .  .  .  .
+        ;    1 ║ .  .  .  .  .  .  .  .
+        ;      ╚═══════════════════════
+        ;        a  b  c  d  e  f  g  h
+
+        end if
+
+
+    ; setup _popcnt
+    and r9, [ShelterMask]
+	xor r11, r11
+    _popcnt r11, r9
+    cmp r9, 5
+    je SafetySum
+
+    and r10, [StormMask]
+	xor r12, r12
+    _popcnt r12, r10
+    cmp r10, 5
+    jne SkipSum
+
+SafetySum:
+    add  eax, 300
+
+SkipSum:
+    pop  r13 r12 r11 rdi rsi
 		ret
 end macro
 
