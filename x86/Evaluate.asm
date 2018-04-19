@@ -711,20 +711,24 @@ macro ShelterStorm Us
 	Up		= DELTA_N
 	PiecesUs	equ r14
 	PiecesThem	equ r15
-	ShelterMask 	= SQ_A2 or SQ_B3 or SQ_C2 or SQ_F2 or SQ_G3 or SQ_H2
-	StormMask	= SQ_A3 or SQ_C3 or SQ_F3 or SQ_H3
+	ShelterMask	= ((FileABB and Rank2BB) or (FileBBB and Rank3BB) or (FileCBB and Rank2BB) or (FileFBB and Rank2BB) or (FileGBB and Rank3BB) or (FileHBB and Rank2BB))
+	;ShelterMask 	= (SQ_A2 or SQ_B3 or SQ_C2 or SQ_F2 or SQ_G3 or SQ_H2)
+	StormMask 	= ((FileABB and Rank3BB) or (FileCBB and Rank3BB) or (FileFBB and Rank3BB) or (FileHBB and Rank3BB))
+	;StormMask	= (SQ_A3 or SQ_C3 or SQ_F3 or SQ_H3)
   else
 	Them		= White
 	Up		= DELTA_S
 	PiecesUs	equ r15
 	PiecesThem	equ r14
-	 ShelterMask 	= SQ_A7 or SQ_B6 or SQ_C7 or SQ_F7 or SQ_G6 or SQ_H7
-	 StormMask	= SQ_A6 or SQ_C6 or SQ_F6 or SQ_H6
+	ShelterMask	= 	((FileABB and Rank7BB) or (FileBBB and Rank6BB) or (FileCBB and Rank7BB) or (FileFBB and Rank7BB) or (FileGBB and Rank6BB) or (FileHBB and Rank7BB))
+	;ShelterMask 	= (SQ_A7 or SQ_B6 or SQ_C7 or SQ_F7 or SQ_G6 or SQ_H7)
+	StormMask	= ((FileABB and Rank6BB) or (FileCBB and Rank6BB) or (FileFBB and Rank6BB) or (FileHBB and Rank6BB))
+	;StormMask	= (SQ_A6 or SQ_C6 or SQ_F6 or SQ_H6)
   end if
 
 	MaxSafetyBonus = 258
 
-		push   rsi rdi r11 r12 r13
+		push   rsi rdi r9 r10 r11 r12 r13
 
 
 		Assert   e, PiecesUs, qword[rbp+Pos.typeBB+8*Us], 'assertion PiecesUs failed in EvalPassedPawns'
@@ -736,18 +740,18 @@ macro ShelterStorm Us
 		and   ecx, 7
 		lea   r12d, [5*rcx]
 		lea   r12d, [r12+8*rcx+2]
-		shr   r12d, 4		; r12d = max(FILE_B, min(FILE_G, ecx))-1 = center
-		
+		shr   r12d, 4		; r12d = max(FILE_B, min(FILE_G, ecx))-1
+	mov   rdx, r12
+	add   rdx, 1   ; rdx = center
 		mov   r13d, r11d
 		shr   r13d, 3
-		mov   r8, qword[InFrontBB+8*(8*Us+r13)]
-		or    r8, qword[RankBB+8*r13] ; r8 = (forward_ranks_bb(Us, ksq) | rank_bb(ksq))
-			add r12, 1
-			mov   r11, qword[AdjacentFilesBB+8*r12]
-			or    r11, qword[FileBB+8*r12] ; r11 = (adjacent_files_bb(center) | file_bb(center))
-			and   r8, r11 
-			sub r12, 1                
+		mov   r8, qword[InFrontBB+8*(8*Us+r11d)] ; r8 <-- (forward_ranks_bb(Us, ksq)
+		or    r8, qword[RankBB+8*r11d] ; r8 <--(forward_ranks_bb(Us, ksq) | rank_bb(ksq))
+	mov   r11, qword[AdjacentFilesBB+8*rdx] ; r11 <-- adjacent_files_bb(center) 
+	or    r11, qword[FileBB+8*rdx] ; r11 = (adjacent_files_bb(center) | file_bb(center))
+	and   r8, r11             
 		and   r8, qword[rbp+Pos.typeBB+8*Pawn]	; r8 = b
+		
 		mov   r9, PiecesUs
 		and   r9, r8	; r9 = ourPawns
 		mov   r10, PiecesThem
@@ -837,9 +841,15 @@ macro ShelterStorm Us
     ShelterStormAcc
     ShelterStormAcc
     ShelterStormAcc
-	
-		and r9, ShelterMask
-		and r10, StormMask
+
+		xor rdx, rdx 
+		mov rdx, ShelterMask
+		and r9, rdx
+		
+		xor rdx, rdx
+		mov rdx, StormMask
+		and r10, rdx
+		
 		or  r9, r10
         popcnt r10, r9
         cmp r10, 5
@@ -847,7 +857,7 @@ macro ShelterStorm Us
 		add  rax, 300
 
 NoSafetySum:
-		pop   r13 r12 r11 rdi rsi
+		pop   r13 r12 r11 r10 r9 rdi rsi
 		ret
 end macro
 
